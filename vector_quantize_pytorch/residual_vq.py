@@ -417,7 +417,8 @@ class ResidualVQ(Module):
 
         all_losses, all_indices = map(partial(torch.stack, dim = -1), (all_losses, all_indices))
 
-        ret = (quantized_out, all_indices, all_losses)
+        all_residuals = torch.stack(all_residuals, dim=0)
+        ret = (quantized_out, all_indices, all_losses, all_residuals)
 
         if return_all_codes:
             # whether to return all codes from all codebooks across layers
