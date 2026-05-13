@@ -76,7 +76,8 @@ class FSQ(Module):
         force_quantization_f32 = True,
         preserve_symmetry = False,
         noise_dropout = 0.,
-        bound_hard_clamp = False # for residual fsq, if input is pre-softclamped to the right range
+        bound_hard_clamp = False,                   # for residual fsq, if input is pre-softclamped to the right range
+        orthogonal_rotation = False                 # increase codebook utilization. ensure levels are symmetric! https://arxiv.org/abs/2307.13304v2
     ):
         super().__init__()
 
@@ -132,6 +133,17 @@ class FSQ(Module):
 
         self.bound_hard_clamp = bound_hard_clamp
 
+        self.orthogonal_rotation = orthogonal_rotation
+
+        if orthogonal_rotation:
+            is_symmetric = len(set(levels)) == 1
+            if not is_symmetric:
+                print('orthogonal_rotation is not recommended for FSQ with asymmetric levels (i.e. where the number of bins differ across dimensions)')
+
+            orthogonal_rot = torch.empty(codebook_dim, codebook_dim)
+            nn.init.orthogonal_(orthogonal_rot)
+            self.register_buffer('orthogonal_rot', orthogonal_rot)
+
     def bound(self, z, eps = 1e-3, hard_clamp = False):
         """ Bound `z`, an array of shape (..., d). """
         maybe_tanh = tanh if not hard_clamp else partial(clamp, min = -1., max = 1.)
@@ -145,7 +157,7 @@ class FSQ(Module):
         return round_ste(bounded_z) / half_width
 
     # symmetry-preserving and noise-approximated quantization, section 3.2 in https://arxiv.org/abs/2411.19842
-    
+
     def symmetry_preserving_bound(self, z, hard_clamp = False):
         """ QL(x) = 2 / (L - 1) * [(L - 1) * (tanh(x) + 1) / 2 + 0.5] - 1 """
         maybe_tanh = tanh if not hard_clamp else partial(clamp, min = -1., max = 1.)
@@ -186,7 +198,7 @@ class FSQ(Module):
 
         half_width = self._levels // 2
         return (zhat_normalized * half_width) + half_width
-    
+
     def _scale_and_shift_inverse(self, zhat):
         if self.preserve_symmetry:
             return zhat * (2. / (self._levels - 1)) - 1.
@@ -218,6 +230,9 @@ class FSQ(Module):
         is_img_or_video = indices.ndim >= (3 + int(self.keep_num_codebooks_dim))
 
         codes = self._indices_to_codes(indices)
+
+        if self.orthogonal_rotation:
+            codes = codes @ self.orthogonal_rot.t()
 
         if self.keep_num_codebooks_dim:
             codes = rearrange(codes, '... c d -> ... (c d)')
@@ -253,6 +268,9 @@ class FSQ(Module):
 
         z = rearrange(z, 'b n (c d) -> b n c d', c = self.num_codebooks)
 
+        if self.orthogonal_rotation:
+            z = z @ self.orthogonal_rot
+
         # whether to force quantization step to be full precision or not
 
         force_f32 = self.force_quantization_f32
@@ -274,6 +292,9 @@ class FSQ(Module):
                 indices = self.codes_to_indices(codes)
 
             codes = self.maybe_apply_noise(codes)
+
+            if self.orthogonal_rotation:
+                codes = codes @ self.orthogonal_rot.t()
 
             codes = rearrange(codes, 'b n c d -> b n (c d)')
 

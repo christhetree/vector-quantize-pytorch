@@ -233,7 +233,8 @@ def test_directional_reparam():
     vq = VectorQuantize(
         dim = 256,
         codebook_size = 512,                # codebook size
-        directional_reparam = True
+        directional_reparam = True,
+        threshold_ema_dead_code = 2
     )
 
     x = torch.randn(1, 1024, 256).requires_grad_()
@@ -244,7 +245,8 @@ def test_directional_reparam():
         dim = 256,
         num_quantizers = 8,
         codebook_size = 128,
-        directional_reparam = True
+        directional_reparam = True,
+        threshold_ema_dead_code = 2
     )
 
     quantized, indices, _ = rq(x)
@@ -535,3 +537,24 @@ def test_fvq():
 
     assert quantized.shape == x.shape
     assert indices.shape == (1, 1024)
+
+def test_hq():
+    from vector_quantize_pytorch import HierarchicalVQ
+
+    hq = HierarchicalVQ(
+        dim = 32,
+        codebook_size = 128,
+        accept_image_fmap = True,
+        scales = (1, 2, 4, 7),
+        quant_resi = 0.5,
+        share_quant_resi = 1
+    )
+
+    x = torch.randn(1, 32, 7, 7)
+    quantized, indices, commit_loss = hq(x)
+    reconstructed = hq.get_output_from_indices(indices)
+
+    assert quantized.shape == x.shape
+    assert reconstructed.shape == x.shape
+    assert len(indices) == 4
+    assert torch.isfinite(commit_loss).all()
