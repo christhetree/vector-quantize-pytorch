@@ -597,7 +597,7 @@ class ResidualVQ(Module):
 
         # stack all losses and indices
         
-        all_residuals = torch.stack(all_residuals, dim=0)
+        # all_residuals = torch.stack(all_residuals, dim=0)
         ret = (quantized_out, all_indices, all_losses, all_residuals)
 
         if return_all_codes:
